@@ -1,0 +1,2 @@
+pyyaml>=6.0
+langdetect>=1.0.9    # language filter (English-only postings); scrape.py falls back to a heuristic if absent

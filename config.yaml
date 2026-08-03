@@ -1,0 +1,64 @@
+# config.yaml — the input form for your daily job feed.
+# Every knob below filters what lands in the hosted HTML. Keep it aligned with
+# the skill's profile.yaml. Each person can keep their own copy of this file.
+
+# ── Region & location ────────────────────────────────────────────────
+region: DE               # ISO-2 country, default Germany. Use REMOTE for global remote-first.
+location: ""             # optional city for on-site/hybrid, e.g. "Berlin". Blank = whole country.
+distance_km: 30          # search radius around `location` (used by location-aware sources)
+
+# ── Work modes to include ────────────────────────────────────────────
+# Any of: remote, hybrid, onsite. This is the big change from remote-only.
+work_modes: [remote, hybrid, onsite]
+
+# ── Titles & keywords ────────────────────────────────────────────────
+target_titles:           # a job matching one of these gets a big score boost
+  - "Strategy & Operations"
+  - "Business Operations"
+  - "Chief of Staff"
+  - "Revenue Operations"
+  - "GTM Operations"
+search_terms: ["operations", "strategy", "chief of staff"]   # sent to search-capable sources
+keyword_themes:          # QUALITY metric — each genuine match raises a job's score
+  - process optimisation
+  - stakeholder management
+  - program management
+  - analytics
+  - operational efficiency
+  - okrs
+exclude_keywords: ["on-site only", "unpaid", "commission only", "praktikum", "werkstudent"]
+
+# ── Language (very important) ────────────────────────────────────────
+language:
+  require_english_posting: true   # keep ONLY postings written in English
+  # Drop roles that demand German ABOVE this level. Scale: none < A1 < A2 < B1 < B2 < C1 < C2.
+  # Your friend is B1, so B1 keeps English-first roles and drops "fluent/verhandlungssicher German".
+  max_german_level: B1
+
+# ── Quality gate, freshness & volume cap ─────────────────────────────
+min_score: 3             # keyword/title fit threshold. Higher = stricter, fewer, better-fit jobs.
+max_age_days: 21         # only show jobs posted within this many days; sources are queried
+                         # newest-first and fresher jobs are ranked higher.
+max_jobs: 40             # hard cap on results — no infinite lists.
+
+# ── Sources ──────────────────────────────────────────────────────────
+# adzuna    → region + city + on-site/hybrid coverage (FREE key: app_id + app_key)
+# arbeitnow → EU/Germany board, many English + visa roles (no key)
+# remotive, remoteok, jobicy → remote-first boards (no key; only used if "remote" in work_modes)
+# linkedin  → LinkedIn jobs via Apify actor (needs APIFY_TOKEN; ~$1/1000, hard-capped below)
+# theirstack → optional paid (LinkedIn/Indeed/Glassdoor + ATS); needs THEIRSTACK_API_KEY
+sources: [adzuna, arbeitnow, remotive, jobicy, linkedin]
+
+# Adzuna free credentials — register at developer.adzuna.com, then set these as GitHub secrets.
+adzuna_app_id_env: ADZUNA_APP_ID
+adzuna_app_key_env: ADZUNA_APP_KEY
+
+# LinkedIn via Apify (apify.com). Register, copy your API token, add it as the APIFY_TOKEN secret.
+# COST CONTROL: max_linkedin is a HARD per-run ceiling enforced by Apify's &maxItems — a run can
+# never return (or bill for) more than this many jobs. At ~$1/1000, 50 jobs ≈ $0.05/run.
+# Also set a monthly usage limit in your Apify account as a second backstop.
+apify_token_env: APIFY_TOKEN
+linkedin_actor: "curious_coder~linkedin-jobs-scraper"
+max_linkedin: 50
+
+theirstack_limit: 25     # keep small to stay well under €30/month
