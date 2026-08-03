@@ -1,0 +1,118 @@
+name: Job Feed on Request
+
+# Fires when someone submits (or edits) a "Job Search Request" issue.
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  # Gate: only the repo owner or someone with write access can trigger a scrape.
+  # Anyone else opens an issue -> we post a "not authorised" comment and stop
+  # (never spends Apify credits or does a deploy).
+  authorise:
+    if: contains(github.event.issue.labels.*.name, 'job-request')
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const author = context.payload.issue.user.login;
+            const { owner, repo } = context.repo;
+            let allowed = author === owner;
+            if (!allowed) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner, repo, username: author
+                });
+                allowed = ["admin", "maintain", "write"].includes(data.permission);
+              } catch (e) {
+                allowed = false;
+              }
+            }
+            core.setOutput("allowed", allowed);
+            if (!allowed) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: context.issue.number,
+                body: [
+                  "🚫 This job feed is private to the repository owner and their collaborators.",
+                  "",
+                  "If you want your own feed, create your own repository from this template",
+                  "and add your own API keys as secrets."
+                ].join("\n")
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: context.issue.number, state: "closed"
+              });
+            }
+
+  build:
+    needs: authorise
+    if: needs.authorise.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Turn the submitted form into an effective config
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: python apply_form.py --base config.yaml --out effective_config.yaml
+
+      - name: Build feed
+        env:
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+        run: python scrape.py --config effective_config.yaml --out public/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Comment the feed link on the issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = "${{ steps.deployment.outputs.page_url }}";
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                "✅ Your job feed is ready:",
+                "",
+                url,
+                "",
+                "Open it, or paste that link into the **Career Tailor** skill in Claude to",
+                "tailor a CV + cover letter. To change your search, just **edit this issue** —",
+                "it rebuilds automatically."
+              ].join("\n")
+            });
