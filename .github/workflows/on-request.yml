@@ -3,7 +3,7 @@ name: Job Feed on Request
 # Fires when someone submits (or edits) a "Job Search Request" issue.
 on:
   issues:
-    types: [opened, edited]
+    types: [opened, edited, labeled]
 
 permissions:
   contents: read
@@ -20,7 +20,12 @@ jobs:
   # Anyone else opens an issue -> we post a "not authorised" comment and stop
   # (never spends Apify credits or does a deploy).
   authorise:
-    if: contains(github.event.issue.labels.*.name, 'job-request')
+    # Match the Job Search Request form by its label OR its fixed title, so this
+    # works even when the 'job-request' label doesn't exist yet (e.g. a fresh
+    # "Use this template" copy, where custom labels don't carry over).
+    if: >-
+      contains(github.event.issue.labels.*.name, 'job-request')
+      || startsWith(github.event.issue.title, 'Job feed request')
     runs-on: ubuntu-latest
     outputs:
       allowed: ${{ steps.check.outputs.allowed }}
