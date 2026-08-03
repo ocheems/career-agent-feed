@@ -1,0 +1,51 @@
+name: Daily Job Feed
+
+# Runs every day at 06:00 UTC, and on manual trigger.
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+# Needed for GitHub Pages deploy
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Build feed
+        env:
+          # Free Adzuna key (region + city + on-site/hybrid coverage). Register at
+          # developer.adzuna.com and add these in Settings > Secrets and variables > Actions.
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          # LinkedIn jobs via Apify (hard-capped by max_linkedin in config.yaml).
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          # Optional paid aggregator (LinkedIn/Indeed/Glassdoor + ATS).
+          THEIRSTACK_API_KEY: ${{ secrets.THEIRSTACK_API_KEY }}
+        run: python scrape.py --config config.yaml --out public/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
