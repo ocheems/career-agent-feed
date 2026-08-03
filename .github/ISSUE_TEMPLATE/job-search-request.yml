@@ -1,0 +1,150 @@
+name: "🔎 Job Search Request"
+description: "Fill this in to generate your daily job feed. Submitting starts the scrape."
+title: "Job feed request"
+labels: ["job-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > ⚠️ **This issue and its comments are public** (the repository is public).
+        > Only fill in job-search *criteria* below. Never paste personal data such as
+        > your full name, phone number, home address, salary, or any API keys.
+
+        Fill in your search below and click **Submit new issue**. That starts the scrape;
+        in ~1 minute a comment appears with the link to your job feed. Change your search
+        anytime by **editing this issue** — it re-runs automatically.
+
+  - type: dropdown
+    id: region
+    attributes:
+      label: "Region (country)"
+      description: "Where do you want to work? Use Global remote for location-independent roles."
+      options:
+        - "Germany (DE)"
+        - "Netherlands (NL)"
+        - "United Kingdom (GB)"
+        - "Ireland (IE)"
+        - "Austria (AT)"
+        - "Switzerland (CH)"
+        - "United States (US)"
+        - "Global remote (REMOTE)"
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: "City or location (optional)"
+      description: "For on-site / hybrid roles, e.g. Berlin. Leave blank for the whole country."
+      placeholder: "Berlin"
+
+  - type: checkboxes
+    id: work_modes
+    attributes:
+      label: "Work modes"
+      description: "Tick every mode you'd accept."
+      options:
+        - label: "Remote"
+        - label: "Hybrid"
+        - label: "On-site"
+
+  - type: textarea
+    id: target_titles
+    attributes:
+      label: "Target job titles (one per line)"
+      placeholder: |
+        Strategy & Operations
+        Business Operations
+        Chief of Staff
+    validations:
+      required: true
+
+  - type: textarea
+    id: keyword_themes
+    attributes:
+      label: "Must-have keywords / your strengths (one per line)"
+      description: "Used to score how well each job fits you. Use your genuine strengths."
+      placeholder: |
+        process optimisation
+        stakeholder management
+        analytics
+    validations:
+      required: true
+
+  - type: textarea
+    id: exclude_keywords
+    attributes:
+      label: "Words to exclude (optional, one per line)"
+      placeholder: |
+        unpaid
+        werkstudent
+        praktikum
+
+  - type: dropdown
+    id: apply_language
+    attributes:
+      label: "Application language"
+      description: "The language your CV / cover letter will be written in."
+      options: ["English", "German"]
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: english_only
+    attributes:
+      label: "Only show English-language job postings?"
+      options: ["Yes", "No"]
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: german_level
+    attributes:
+      label: "Your German level"
+      description: "Roles demanding German ABOVE this (e.g. fluent / C1 / C2) are dropped."
+      options: ["none", "A1", "A2", "B1", "B2", "C1", "C2"]
+      default: 3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: max_age_days
+    attributes:
+      label: "Only jobs posted within"
+      description: "Freshness window. Sources are queried newest-first; fresher jobs rank higher."
+      options: ["3 days", "7 days", "14 days", "21 days", "30 days"]
+      default: 3
+    validations:
+      required: true
+
+  - type: dropdown
+    id: include_linkedin
+    attributes:
+      label: "Include LinkedIn jobs?"
+      description: "Adds LinkedIn postings via Apify (hard-capped, ~$0.05/run). Needs APIFY_TOKEN set in repo secrets; if it isn't, LinkedIn is simply skipped."
+      options: ["Yes", "No"]
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: min_score
+    attributes:
+      label: "Minimum fit score (quality gate)"
+      description: "Higher = fewer, better-matched jobs."
+      options: ["1", "2", "3", "4", "5"]
+      default: 2
+    validations:
+      required: true
+
+  - type: dropdown
+    id: max_jobs
+    attributes:
+      label: "Maximum number of jobs to show"
+      options: ["10", "20", "30", "40", "60"]
+      default: 2
+    validations:
+      required: true
