@@ -1,0 +1,7 @@
+# Force people to use the structured Job Search Request form (no blank issues).
+blank_issues_enabled: false
+
+contact_links:
+  - name: Job Search Request
+    url: https://github.com/ocheems/career-agent-feed/issues/new?template=job-search-request.yml
+    about: Fill in your preferences to generate your personalized job feed
