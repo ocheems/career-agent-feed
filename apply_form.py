@@ -119,6 +119,8 @@ def main():
     lang = cfg.get("language") or {}
     lang["require_english_posting"] = clean(s.get("Only show English-language job postings?", "Yes")).lower().startswith("y")
     lvl = clean(s.get("Your German level", "B1")) or "B1"
+    # Convert "No German" form label back to internal "none" representation
+    lvl = "none" if lvl.lower() == "no german" else lvl
     lang["max_german_level"] = lvl
     cfg["language"] = lang
     cfg["apply_language"] = clean(s.get("Application language", "English")) or "English"
