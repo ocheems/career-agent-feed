@@ -374,6 +374,38 @@ def score(job, cfg):
 
 COUNTRY_NAME = {"de": "germany", "at": "austria", "ch": "switzerland", "nl": "netherlands",
                 "gb": "united kingdom", "uk": "united kingdom", "ie": "ireland", "us": "united states"}
+# Extra location spellings that should also count as being in-country.
+COUNTRY_ALIASES = {"de": ["deutschland"], "at": ["österreich"], "ch": ["schweiz"],
+                   "nl": ["nederland", "the netherlands"], "gb": ["uk", "england", "scotland", "wales"],
+                   "us": ["usa", "united states of america"]}
+
+
+def in_region(job, cfg, mode):
+    """True if the job belongs in the requested region.
+
+    A specific country was requested (region != REMOTE):
+      • remote roles are location-flexible → always kept (they can be done from anywhere);
+      • on-site / hybrid roles must actually be in that country (or the given city),
+        otherwise a US/UK office job would leak into a Germany search.
+    Unknown/blank locations are kept rather than guessed away.
+    """
+    region = (cfg.get("region") or "").lower()
+    if not region or region == "remote":
+        return True                      # global search — no country gate
+    if mode == "remote":
+        return True                      # remote is location-independent
+    if job.get("source") in ("Adzuna", "LinkedIn"):
+        return True                      # already queried against the requested country
+    loc = (job["location"] or "").lower()
+    if not loc or "remote" in loc or "anywhere" in loc:
+        return True                      # location not concrete enough to reject on
+    if cfg.get("location") and cfg["location"].lower() in loc:
+        return True                      # matches the requested city
+    country = COUNTRY_NAME.get(region, "")
+    names = [country] + COUNTRY_ALIASES.get(region, [])
+    if any(n and n in loc for n in names):
+        return True
+    return bool(re.search(rf"\b{re.escape(region)}\b", loc))   # e.g. "Berlin, DE"
 
 
 def passes(job, cfg):
@@ -382,6 +414,8 @@ def passes(job, cfg):
         return None
     mode = work_mode(job)
     if mode not in [m.lower() for m in cfg.get("work_modes", ["remote", "hybrid", "onsite"])]:
+        return None
+    if not in_region(job, cfg, mode):
         return None
     lang = cfg.get("language", {}) or {}
     english = is_english(job["description"] or job["title"])
@@ -418,65 +452,226 @@ def dedupe(jobs):
 
 # ----------------------------- render HTML -----------------------------------
 
-def render_html(jobs, cfg):
-    now = dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
-    lang = cfg.get("language", {}) or {}
-    scope = f"{cfg.get('region','?')}"
-    if cfg.get("location"):
-        scope += f" · {cfg['location']} (+{cfg.get('distance_km',30)}km)"
-    scope += f" · modes: {', '.join(cfg.get('work_modes', []))}"
-    if lang.get("require_english_posting"):
-        scope += f" · English only, German ≤ {lang.get('max_german_level','—')}"
+def _fit_label(sc):
+    sc = int(sc or 0)
+    if sc >= 6:
+        return "Strong match"
+    if sc >= 4:
+        return "Good match"
+    return "Fair match"
 
-    rows = []
+
+def _region_label(cfg):
+    r = (cfg.get("region") or "").lower()
+    if not r or r == "remote":
+        return "Global / Remote"
+    return COUNTRY_NAME.get(r, cfg.get("region", "")).title()
+
+
+def render_html(jobs, cfg):
+    now = dt.datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
+    lang = cfg.get("language", {}) or {}
+
+    # Human-readable summary of the search (so the page explains itself).
+    pills = [("Region", _region_label(cfg))]
+    if cfg.get("location"):
+        pills.append(("Location", f"{cfg['location']} +{cfg.get('distance_km', 30)}km"))
+    pills.append(("Work mode", ", ".join(m.capitalize() for m in cfg.get("work_modes", [])) or "Any"))
+    pills.append(("Freshness", f"≤ {cfg.get('max_age_days', 21)} days"))
+    if lang.get("require_english_posting"):
+        pills.append(("Language", "English only"))
+    if lang.get("max_german_level"):
+        pills.append(("German", f"≤ {lang.get('max_german_level')}"))
+    pills.append(("Min fit", str(cfg.get("min_score", 1))))
+    if "linkedin" in (cfg.get("sources") or []):
+        pills.append(("LinkedIn", "included"))
+    pills_html = "".join(
+        f'<span class="pill"><span class="pill-k">{html.escape(k)}</span>'
+        f'<span class="pill-v">{html.escape(str(v))}</span></span>'
+        for k, v in pills
+    )
+
+    cards = []
     for i, j in enumerate(jobs):
-        rows.append(f"""
-  <article class="job" id="job-{i}"
-           data-title="{html.escape(j['title'], quote=True)}"
-           data-company="{html.escape(j['company'], quote=True)}"
-           data-location="{html.escape(j['location'], quote=True)}"
-           data-mode="{j.get('_mode','')}" data-score="{j.get('_score','')}"
-           data-language="{j.get('_lang','')}" data-source="{j['source']}"
-           data-posted-ts="{j.get('_ts','')}" data-posted="{j.get('_age','')}"
-           data-url="{html.escape(j['url'], quote=True)}">
-    <h2>{html.escape(j['title'])} <span class="co">— {html.escape(j['company'])}</span></h2>
-    <p class="meta"><span class="badge">{j.get('_mode','')}</span>
-       <span class="badge">fit {j.get('_score','')}</span>
-       <span class="badge fresh">🕒 {j.get('_age','')}</span>
-       {html.escape(j['location'])} · {j['source']} · {html.escape(j['date'])}
-       · <a href="{html.escape(j['url'], quote=True)}">apply link</a></p>
-    <div class="jd">{html.escape(j['description']) or '(no description — open the apply link)'}</div>
-  </article>""")
+        mode = j.get("_mode", "")
+        desc = html.escape(j["description"]) or "(no description provided — open the apply link)"
+        cards.append(f"""
+    <article class="job" id="job-{i}"
+             data-title="{html.escape(j['title'], quote=True)}"
+             data-company="{html.escape(j['company'], quote=True)}"
+             data-location="{html.escape(j['location'], quote=True)}"
+             data-mode="{mode}" data-score="{j.get('_score','') or 0}"
+             data-language="{j.get('_lang','')}" data-source="{j['source']}"
+             data-posted-ts="{j.get('_ts','') or 0}" data-posted="{j.get('_age','')}"
+             data-url="{html.escape(j['url'], quote=True)}">
+      <div class="job-head">
+        <div>
+          <h2>{html.escape(j['title'])}</h2>
+          <p class="company">{html.escape(j['company'])}</p>
+        </div>
+        <a class="apply" href="{html.escape(j['url'], quote=True)}" target="_blank" rel="noopener">Apply&nbsp;↗</a>
+      </div>
+      <div class="badges">
+        <span class="badge mode-{mode}">{mode.capitalize() or 'N/A'}</span>
+        <span class="badge fit">★ {_fit_label(j.get('_score'))}</span>
+        <span class="badge fresh">🕒 {html.escape(j.get('_age',''))}</span>
+        <span class="badge loc">📍 {html.escape(j['location'])}</span>
+        <span class="badge src">{html.escape(j['source'])}</span>
+      </div>
+      <details class="jd-wrap">
+        <summary>Job description</summary>
+        <div class="jd">{desc}</div>
+      </details>
+    </article>""")
+
+    empty_state = "" if jobs else """
+    <div class="empty">
+      <h2>No roles matched this search</h2>
+      <p>The filters may be too tight. Edit your Job Search Request issue and try:</p>
+      <ul>
+        <li>Add <strong>Remote</strong> or <strong>Hybrid</strong> to work modes</li>
+        <li>Lower the <strong>minimum fit score</strong> (e.g. 1&ndash;2)</li>
+        <li>Widen the <strong>freshness window</strong> (e.g. 21&ndash;30 days)</li>
+        <li>Broaden your <strong>keywords</strong> or <strong>target titles</strong></li>
+      </ul>
+    </div>"""
 
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Job Feed — {now}</title>
 <style>
-  body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 820px; margin: 0 auto; padding: 20px; }}
-  header {{ border-bottom: 2px solid #333; margin-bottom: 16px; }}
-  .job {{ border: 1px solid #ddd; border-radius: 8px; padding: 14px 16px; margin: 14px 0; }}
-  h2 {{ margin: 0 0 4px; font-size: 17px; }}
-  .co {{ color: #555; font-weight: 400; }}
-  .meta {{ color: #666; font-size: 13px; margin: 0 0 8px; }}
-  .badge {{ background:#eee; border-radius: 4px; padding: 1px 6px; margin-right: 4px; font-size:12px; }}
-  .badge.fresh {{ background:#e3f2e3; }}
-  .jd {{ white-space: pre-wrap; font-size: 14px; color: #222; max-height: 220px; overflow: auto;
-         background: #fafafa; padding: 10px; border-radius: 6px; }}
-  @media (prefers-color-scheme: dark) {{
-    body {{ background:#111; color:#eee; }} .job {{ border-color:#333; }}
-    .jd {{ background:#1b1b1b; color:#ddd; }} .meta,.co {{ color:#aaa; }} .badge {{ background:#333; }}
+  :root {{
+    --bg:#f6f7f9; --card:#fff; --text:#1a1d21; --muted:#5b6570; --border:#e4e7ec;
+    --accent:#2563eb; --accent-ink:#fff; --chip:#eef1f5; --shadow:0 1px 3px rgba(0,0,0,.06);
+    --remote:#15803d; --remote-bg:#e7f6ec; --hybrid:#1d4ed8; --hybrid-bg:#e8effd;
+    --onsite:#c2410c; --onsite-bg:#fdece1;
   }}
-</style></head><body>
-<header>
-  <h1>Daily Job Feed</h1>
-  <p>{len(jobs)} roles (freshest best-fit first, ≤ {cfg.get('max_age_days',21)} days old,
-     capped at {cfg.get('max_jobs',40)}) · generated {now}</p>
-  <p class="meta">Scope: {html.escape(scope)}</p>
-  <p><em>Career Tailor skill: each job's full description is in its <code>.jd</code> block;
-     work-mode, fit score and language are in <code>data-*</code> attributes.</em></p>
-</header>
-{''.join(rows)}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --bg:#0e1116; --card:#161a21; --text:#e6e8eb; --muted:#9aa4b2; --border:#262c37;
+      --accent:#3b82f6; --chip:#1e242e; --shadow:none;
+      --remote:#4ade80; --remote-bg:#12321f; --hybrid:#60a5fa; --hybrid-bg:#152238;
+      --onsite:#fb923c; --onsite-bg:#33200f;
+    }}
+  }}
+  * {{ box-sizing:border-box; }}
+  body {{ font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); margin:0; }}
+  a {{ color:var(--accent); }}
+  .wrap {{ max-width:860px; margin:0 auto; padding:22px 16px 60px; }}
+  h1 {{ font-size:24px; margin:0 0 2px; letter-spacing:-.02em; }}
+  .sub {{ color:var(--muted); font-size:13px; margin:0 0 14px; }}
+  .pills {{ display:flex; flex-wrap:wrap; gap:6px; margin:0 0 14px; }}
+  .pill {{ display:inline-flex; border:1px solid var(--border); border-radius:7px;
+    overflow:hidden; font-size:12px; background:var(--card); }}
+  .pill-k {{ background:var(--chip); color:var(--muted); padding:3px 7px; }}
+  .pill-v {{ padding:3px 8px; font-weight:600; }}
+  .toolbar {{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; position:sticky; top:0;
+    background:var(--bg); padding:10px 0; z-index:5; border-bottom:1px solid var(--border); }}
+  #q {{ flex:1 1 200px; min-width:140px; padding:8px 11px; border:1px solid var(--border);
+    border-radius:8px; background:var(--card); color:var(--text); font-size:14px; }}
+  #sort {{ padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+    background:var(--card); color:var(--text); font-size:13px; }}
+  .mfilter {{ display:flex; gap:4px; }}
+  .mbtn {{ padding:7px 11px; border:1px solid var(--border); border-radius:8px; cursor:pointer;
+    background:var(--card); color:var(--muted); font-size:12px; font-weight:600; }}
+  .mbtn.on {{ background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }}
+  .count {{ color:var(--muted); font-size:13px; margin:12px 2px 4px; }}
+  .job {{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px;
+    margin:12px 0; box-shadow:var(--shadow); transition:transform .08s ease, box-shadow .08s ease; }}
+  .job:hover {{ transform:translateY(-1px); box-shadow:0 4px 14px rgba(0,0,0,.08); }}
+  .job-head {{ display:flex; gap:12px; align-items:flex-start; justify-content:space-between; }}
+  .job-head h2 {{ font-size:17px; margin:0 0 2px; line-height:1.3; }}
+  .company {{ color:var(--muted); margin:0; font-size:14px; }}
+  .apply {{ flex:none; text-decoration:none; background:var(--accent); color:var(--accent-ink);
+    padding:8px 14px; border-radius:8px; font-size:13px; font-weight:600; white-space:nowrap; }}
+  .apply:hover {{ opacity:.92; }}
+  .badges {{ display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }}
+  .badge {{ font-size:12px; padding:3px 9px; border-radius:20px; background:var(--chip);
+    color:var(--muted); font-weight:600; }}
+  .badge.mode-remote {{ color:var(--remote); background:var(--remote-bg); }}
+  .badge.mode-hybrid {{ color:var(--hybrid); background:var(--hybrid-bg); }}
+  .badge.mode-onsite {{ color:var(--onsite); background:var(--onsite-bg); }}
+  .jd-wrap {{ margin-top:12px; border-top:1px solid var(--border); padding-top:10px; }}
+  .jd-wrap summary {{ cursor:pointer; color:var(--accent); font-size:13px; font-weight:600; list-style:none; }}
+  .jd-wrap summary::-webkit-details-marker {{ display:none; }}
+  .jd-wrap summary::before {{ content:"▸ "; }}
+  .jd-wrap[open] summary::before {{ content:"▾ "; }}
+  .jd {{ white-space:pre-wrap; font-size:13.5px; color:var(--text); margin-top:10px; max-height:340px;
+    overflow:auto; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:12px; }}
+  .empty {{ text-align:center; padding:44px 20px; color:var(--muted); }}
+  .empty h2 {{ color:var(--text); }}
+  .empty ul {{ display:inline-block; text-align:left; margin-top:8px; }}
+  footer {{ color:var(--muted); font-size:12px; text-align:center; margin-top:32px;
+    border-top:1px solid var(--border); padding-top:14px; }}
+  .hidden {{ display:none !important; }}
+</style></head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Job Feed</h1>
+    <p class="sub">{len(jobs)} roles · newest &amp; best-fit first · generated {now}</p>
+    <div class="pills">{pills_html}</div>
+  </header>
+
+  <div class="toolbar">
+    <input id="q" type="search" placeholder="Search title or company…" aria-label="Search jobs">
+    <div class="mfilter" id="mfilter">
+      <button type="button" class="mbtn on" data-m="remote">Remote</button>
+      <button type="button" class="mbtn on" data-m="hybrid">Hybrid</button>
+      <button type="button" class="mbtn on" data-m="onsite">On-site</button>
+    </div>
+    <select id="sort" aria-label="Sort order">
+      <option value="fit">Sort: Best fit</option>
+      <option value="fresh">Sort: Newest</option>
+    </select>
+  </div>
+  <p class="count" id="count"></p>
+
+  <main id="list">{''.join(cards)}{empty_state}</main>
+
+  <footer>
+    Tip: paste this page's URL into the <strong>Career Tailor</strong> skill in Claude to tailor a
+    CV &amp; cover letter for any role above. Each job keeps its full description and machine-readable
+    <code>data-*</code> attributes for the skill.
+  </footer>
+</div>
+<script>
+(function(){{
+  var list=document.getElementById('list');
+  var cards=[].slice.call(list.querySelectorAll('.job'));
+  var q=document.getElementById('q'), sortSel=document.getElementById('sort');
+  var countEl=document.getElementById('count');
+  var modes={{remote:true,hybrid:true,onsite:true}};
+  function apply(){{
+    var term=(q.value||'').toLowerCase(), shown=0;
+    cards.forEach(function(c){{
+      var t=(c.getAttribute('data-title')+' '+c.getAttribute('data-company')).toLowerCase();
+      var m=c.getAttribute('data-mode');
+      var ok=(term===''||t.indexOf(term)>-1)&&(modes[m]!==false);
+      c.classList.toggle('hidden',!ok);
+      if(ok) shown++;
+    }});
+    countEl.textContent=shown+' of '+cards.length+' roles shown';
+  }}
+  function sort(){{
+    var by=sortSel.value;
+    cards.slice().sort(function(a,b){{
+      if(by==='fresh') return b.getAttribute('data-posted-ts')-a.getAttribute('data-posted-ts');
+      return b.getAttribute('data-score')-a.getAttribute('data-score');
+    }}).forEach(function(c){{ list.appendChild(c); }});
+  }}
+  q.addEventListener('input',apply);
+  sortSel.addEventListener('change',function(){{ sort(); apply(); }});
+  document.getElementById('mfilter').addEventListener('click',function(e){{
+    var b=e.target.closest('.mbtn'); if(!b) return;
+    var m=b.getAttribute('data-m'); modes[m]=!modes[m];
+    b.classList.toggle('on',modes[m]); apply();
+  }});
+  apply();
+}})();
+</script>
 </body></html>"""
 
 
