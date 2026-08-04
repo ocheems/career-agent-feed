@@ -224,7 +224,9 @@ def src_linkedin(cfg):
         print("  linkedin skipped: set APIFY_TOKEN", file=sys.stderr)
         return []
     actor = cfg.get("linkedin_actor", "curious_coder~linkedin-jobs-scraper")
-    cap = int(cfg.get("max_linkedin", 50))
+    # Cap at the hard per-run ceiling AND at the form's requested max_jobs — never fetch (or bill
+    # for) more LinkedIn jobs than the user actually asked to see. At least 1 so a run isn't empty.
+    cap = max(1, min(int(cfg.get("max_linkedin", 20)), int(cfg.get("max_jobs", 20))))
 
     # Build a LinkedIn jobs search URL from the same config the rest of the feed uses.
     kw = " ".join(cfg.get("search_terms") or cfg.get("target_titles") or ["operations"])
