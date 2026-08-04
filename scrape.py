@@ -358,12 +358,52 @@ def german_ok(text, max_level):
 
 # ----------------------------- score & filter --------------------------------
 
+# Words too generic to count as a keyword signal on their own.
+STOPWORDS = {"and", "the", "of", "for", "with", "to", "a", "an", "in", "on", "amp", "or",
+             "at", "by", "as", "is", "our", "your", "you", "we", "&", "per", "via", "e.g",
+             "using", "based", "across", "into", "within", "role", "team", "work", "working"}
+
+
+def _tokens(text):
+    """Lowercase word/acronym tokens, e.g. 'Retrieval-Augmented Generation (RAG)' ->
+    {'retrieval','augmented','generation','rag'}. Keeps 2-char signals like 'ai','ml'."""
+    return {w for w in re.findall(r"[a-z0-9+#]+", (text or "").lower()) if len(w) >= 2}
+
+
+def _signal_terms(cfg):
+    """Distinct meaningful tokens drawn from the user's target titles + keyword themes.
+    Long phrases contribute their component words, so a job that says 'we build RAG
+    pipelines and agentic automation' still scores against 'Retrieval-Augmented
+    Generation (RAG)' and 'Agentic Workflows & AI Automation'. Cached on cfg."""
+    cached = cfg.get("_signal_terms")
+    if cached is not None:
+        return cached
+    terms = set()
+    for phrase in list(cfg.get("target_titles", [])) + list(cfg.get("keyword_themes", [])):
+        terms |= _tokens(phrase)
+    terms -= STOPWORDS
+    cfg["_signal_terms"] = terms
+    return terms
+
+
+def _excluded(text, cfg):
+    """True if any exclude term appears as a WHOLE word/phrase. Word boundaries stop
+    'Intern' from matching 'international'/'internal', which used to wipe out the feed."""
+    for e in cfg.get("exclude_keywords", []):
+        e = (e or "").strip().lower()
+        if e and re.search(rf"(?<![a-z0-9]){re.escape(e)}(?![a-z0-9])", text):
+            return True
+    return False
+
+
 def score(job, cfg):
-    t = f"{job['title']} {job['description']} {' '.join(job['tags'])}".lower()
-    sc = 0
+    job_tokens = _tokens(f"{job['title']} {job['description']} {' '.join(job['tags'])}")
+    # +1 per distinct keyword/title word the job actually mentions
+    sc = len(_signal_terms(cfg) & job_tokens)
+    # strong bonus if a full target title appears verbatim in the posting
+    t = f"{job['title']} {job['description']}".lower()
     if any(x.lower() in t for x in cfg.get("target_titles", [])):
-        sc += 5
-    sc += sum(1 for k in cfg.get("keyword_themes", []) if k.lower() in t)
+        sc += 3
     # region/location bonus
     region = (cfg.get("region") or "").lower()
     loc = job["location"].lower()
@@ -412,7 +452,7 @@ def in_region(job, cfg, mode):
 
 def passes(job, cfg):
     text = f"{job['title']} {job['description']} {' '.join(job['tags'])}".lower()
-    if any(e.lower() in text for e in cfg.get("exclude_keywords", [])):
+    if _excluded(text, cfg):
         return None
     mode = work_mode(job)
     if mode not in [m.lower() for m in cfg.get("work_modes", ["remote", "hybrid", "onsite"])]:
