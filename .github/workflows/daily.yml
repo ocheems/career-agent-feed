@@ -1,9 +1,16 @@
 name: Daily Job Feed
 
-# Runs every day at 06:00 UTC, and on manual trigger.
+# Manual "standing search" run using the committed config.yaml.
+#
+# NOTE: the automatic daily schedule is DISABLED on purpose. This workflow and the
+# Issue-form workflow (on-request.yml) both publish to the SAME GitHub Pages URL, so
+# whichever runs last wins. If the daily schedule were on, it would periodically
+# overwrite the feed you generate from the Issue form with config.yaml's defaults.
+# Re-enable the two `schedule` lines below only if you want a standing daily feed and
+# accept that it replaces the last form-generated one.
 on:
-  schedule:
-    - cron: "0 6 * * *"
+  # schedule:
+  #   - cron: "0 6 * * *"
   workflow_dispatch: {}
 
 # Needed for GitHub Pages deploy
