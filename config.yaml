@@ -55,10 +55,11 @@ adzuna_app_key_env: ADZUNA_APP_KEY
 
 # LinkedIn via Apify (apify.com). Register, copy your API token, add it as the APIFY_TOKEN secret.
 # COST CONTROL: max_linkedin is a HARD per-run ceiling enforced by Apify's &maxItems — a run can
-# never return (or bill for) more than this many jobs. At ~$1/1000, 50 jobs ≈ $0.05/run.
-# Also set a monthly usage limit in your Apify account as a second backstop.
+# never return (or bill for) more than this many jobs. The scraper also caps LinkedIn to the form's
+# "Maximum number of jobs" (max_jobs), so it never fetches more than you asked for. At ~$1/1000,
+# 20 jobs ≈ $0.02/run. Also set a monthly usage limit in your Apify account as a second backstop.
 apify_token_env: APIFY_TOKEN
 linkedin_actor: "curious_coder~linkedin-jobs-scraper"
-max_linkedin: 50
+max_linkedin: 20
 
 theirstack_limit: 25     # keep small to stay well under €30/month
