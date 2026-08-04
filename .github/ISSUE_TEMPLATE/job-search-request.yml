@@ -124,7 +124,7 @@ body:
     id: include_linkedin
     attributes:
       label: "Include LinkedIn jobs?"
-      description: "Adds LinkedIn postings via Apify (hard-capped, ~$0.05/run). Needs APIFY_TOKEN set in repo secrets; if it isn't, LinkedIn is simply skipped."
+      description: "Adds LinkedIn postings via Apify (hard-capped to 20/run, or fewer if you lower 'Maximum number of jobs' — ~$0.02/run). Needs APIFY_TOKEN set in repo secrets; if it isn't, LinkedIn is simply skipped."
       options: ["Yes", "No"]
       default: 0
     validations:
