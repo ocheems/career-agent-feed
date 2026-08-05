@@ -4,8 +4,8 @@ A self-hosted, daily-updating job feed. A scheduled GitHub Action pulls postings
 job APIs, filters them by **region, location, work-mode, language, freshness and keyword-fit**,
 and publishes a single static page on **GitHub Pages** with each job's full description embedded.
 
-You drive it entirely from a **GitHub Issue form** — no code or config editing required — or let
-it refresh on a daily schedule. The published page is designed to be read by an LLM assistant
+You drive it entirely from a **GitHub Issue form** — no code or config editing required — and the
+feed rebuilds each time you submit or edit a request. The published page is designed to be read by an LLM assistant
 (each job carries `data-*` attributes and a full-text description) so you can tailor a CV and
 cover letter against a chosen posting.
 
@@ -59,14 +59,17 @@ for full coverage (both have free tiers). The feed still works without them on t
 - **Issue form (recommended).** Submitting or editing a *Job Search Request* issue runs the
   pipeline with the values you entered. No files to edit. Only the repository owner and
   collaborators can trigger a run (see [`SECURITY.md`](SECURITY.md)).
-- **Daily schedule.** `.github/workflows/daily.yml` runs at 06:00 UTC using the committed
-  `config.yaml`. You can also trigger it manually from **Actions → Daily Job Feed → Run workflow**.
+- **Standing search (manual).** `.github/workflows/daily.yml` runs the committed `config.yaml` when
+  you trigger it from **Actions → Daily Job Feed → Run workflow**. Its automatic daily schedule is
+  **disabled by default**, because it publishes to the same Pages URL as the Issue form and would
+  overwrite your form-generated feed. Re-enable the `schedule` block in that file only if you want a
+  recurring standing feed and accept that it replaces the last form result.
 
 ---
 
 ## Configuration reference (`config.yaml`)
 
-The Issue form overrides these per-run; `config.yaml` holds the defaults for the scheduled run.
+The Issue form overrides these per-run; `config.yaml` holds the defaults for the manual standing run.
 
 | Key | Meaning |
 | --- | --- |
@@ -101,11 +104,12 @@ The Issue form overrides these per-run; `config.yaml` holds the defaults for the
 | **TheirStack** | `THEIRSTACK_API_KEY` | LinkedIn/Indeed/Glassdoor + ATS aggregate | Optional, metered |
 
 **LinkedIn note.** LinkedIn has no official job-search API; listings come via an Apify actor that
-runs on Apify's infrastructure (your own LinkedIn account is never used). `max_linkedin` caps each
-run at the platform level, and you should also set a monthly usage limit in your Apify account.
+runs on Apify's infrastructure (your own LinkedIn account is never used). Each run fetches at most
+`max_linkedin` jobs (default **20**) *and* never more than the form's "Maximum number of jobs", so a
+run can't over-fetch or overspend. Also set a monthly usage limit in your Apify account as a backstop.
 
-Running only the free sources costs nothing. Adding LinkedIn at ~50 jobs/day is roughly
-$1.50/month and often covered by Apify's free monthly credit.
+Running only the free sources costs nothing. Adding LinkedIn at 20 jobs/run is roughly **$0.02/run**
+(~$0.60/month even at one run a day) and is usually covered by Apify's free monthly credit.
 
 ---
 
@@ -140,7 +144,7 @@ python scrape.py --config effective_config.yaml --out public/index.html
 ```
 .github/
   ISSUE_TEMPLATE/job-search-request.yml   # the search form
-  workflows/daily.yml                      # scheduled run
+  workflows/daily.yml                      # manual standing run (daily schedule disabled by default)
   workflows/on-request.yml                 # runs on issue submit (with an authorised-user gate)
   workflows/secrets-guard.yml              # fails any push containing a credential-shaped string
 scrape.py            # fetch, filter, rank, render the feed
